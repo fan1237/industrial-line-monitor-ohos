@@ -1,6 +1,7 @@
 import { SensorData } from '../model/SensorData'
 import { LineState, ProcessStep, LineIndicator } from '../model/LineState'
 import { IDataService } from './IDataService'
+import { ProtocolService } from './ProtocolService'
 
 // 核心工序（模块一要求：上料 / 装配 / 检测 / 打包 / 入库）
 const STEP_NAMES: string[] = ['上料', '装配', '检测', '打包', '入库']
@@ -38,7 +39,26 @@ export class MockDataService implements IDataService {
   }
 
   sendCommand(cmd: string, newStatus: string): void {
-    // 真实实现：SM4 加密指令 → 发 MQTT → 服务器校验后下 PLC → 状态经 onCommand 回推
+    // 真实实现：指令 JSON → 国密封装 → MQTT 发布 → 服务器校验后下 PLC → 状态经 onCommand 回推。
+    // Mock 阶段把「封装→解封→解析」全链路在本地跑一遍，验证报文格式与国密参数可用。
+    this.dispatchCommand(cmd, newStatus)
+  }
+
+  private async dispatchCommand(cmd: string, newStatus: string): Promise<void> {
+    try {
+      const plain = ProtocolService.buildCommand(cmd, 'operator01')
+      const envelope = await ProtocolService.seal(plain)
+      const decoded = await ProtocolService.open(envelope)
+      const msg = ProtocolService.parseCommand(decoded)
+      this.executeCommand(msg.cmd, newStatus)
+    } catch (e) {
+      // 国密链路异常时降级为本地直传，保证演示不中断
+      console.error(`指令报文链路失败，降级本地执行: ${e.message}`)
+      this.executeCommand(cmd, newStatus)
+    }
+  }
+
+  private executeCommand(cmd: string, newStatus: string): void {
     if (cmd === '启动') {
       this.running = true
       this.status = newStatus
@@ -67,19 +87,33 @@ export class MockDataService implements IDataService {
   start(): void {
     if (this.timer !== -1) return
     this.timer = setInterval(() => {
-      this.dataCb({
-        temp: Number((20 + Math.random() * 15).toFixed(1)),
-        humi: Number((40 + Math.random() * 40).toFixed(1)),
-        sensor: Math.random() > 0.5
-      })
-      if (this.running) {
-        this.advanceProcess()
-      }
-      this.stateCb({
-        processes: this.cloneProcesses(),
-        indicators: this.buildIndicators()
-      })
+      this.tick()
     }, 1000)
+  }
+
+  // 每秒一次：构造 JSON 报文 → 国密封装 → 解封 → 解析 → 回调 UI（模拟真实收发链路）
+  private async tick(): Promise<void> {
+    const temp = Number((20 + Math.random() * 15).toFixed(1))
+    const humi = Number((40 + Math.random() * 40).toFixed(1))
+    const photo = Math.random() > 0.5
+    try {
+      const plain = ProtocolService.buildSensor(temp, humi, photo, this.status)
+      const envelope = await ProtocolService.seal(plain)
+      const decoded = await ProtocolService.open(envelope)
+      const msg = ProtocolService.parseSensor(decoded)
+      this.dataCb({ temp: msg.data.temp, humi: msg.data.humi, sensor: msg.data.photo })
+    } catch (e) {
+      // 国密链路异常时降级为本地直传，保证监控不中断
+      console.error(`传感器报文链路失败，降级本地直传: ${e.message}`)
+      this.dataCb({ temp: temp, humi: humi, sensor: photo })
+    }
+    if (this.running) {
+      this.advanceProcess()
+    }
+    this.stateCb({
+      processes: this.cloneProcesses(),
+      indicators: this.buildIndicators()
+    })
   }
 
   stop(): void {

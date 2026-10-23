@@ -38,7 +38,7 @@
 | UI 框架 | ArkUI（声明式）+ Canvas 2D 自绘图表 |
 | 本地存储 | `@kit.ArkData` → RelationalStore（关系型数据库） |
 | 安全加密 | `@kit.CryptoArchitectureKit` → SM2 / SM3 / SM4 |
-| 通信规划 | MQTT over TLS 1.3 / WebSocket，JSON 报文 |
+| 通信规划 | MQTT over TLS 1.3 / WebSocket，**JSON 报文编解码已实现**（`ProtocolService`，含国密封装/解封） |
 
 ---
 
@@ -121,7 +121,7 @@ MqttDataService   ← 拿到协议后新增，改一行 new 即可切换
 | SM3（摘要） | 完整性 | 报文摘要，接收端比对防篡改 |
 | SM4（对称） | 数据加密 | 加密业务 JSON 报文（128 位密钥，CBC + PKCS7） |
 
-代码位置：`entry/src/main/ets/service/CryptoService.ets`，APP 内「国密算法自检」区块可现场一键验证三种算法可用。
+代码位置：`entry/src/main/ets/service/CryptoService.ets`（算法）+ `service/ProtocolService.ets`（JSON 报文组装与国密封装 `seal` / 解封 `open`）。APP 内「国密算法自检」区块可现场一键验证三种算法可用，并演示 **JSON 信封往返**（明文报文 → 国密封装 → 验签解密还原）。Mock 数据源每秒的传感器数据与控制指令均实际走该链路，联调时 MQTT 层只需收发信封字节即可。
 
 ---
 

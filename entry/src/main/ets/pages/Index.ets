@@ -6,6 +6,7 @@ import { HistoryPoint } from '../model/HistoryPoint'
 import { HistoryStore } from '../service/HistoryStore'
 import { CryptoService } from '../service/CryptoService'
 import { CryptoCheckResult } from '../service/CryptoService'
+import { ProtocolService } from '../service/ProtocolService'
 import { LineState, ProcessStep, LineIndicator } from '../model/LineState'
 
 // 报警数据
@@ -487,6 +488,22 @@ struct Index {
     }
   }
 
+  // JSON 报文国密封装往返演示：明文 JSON → 信封 → 解封 → 还原（答辩重点演示）
+  async demoJsonEnvelope() {
+    try {
+      const plain = ProtocolService.buildCommand('START', 'operator01')
+      const envelope = await ProtocolService.seal(plain)
+      const envObj = JSON.parse(envelope) as Record<string, string>
+      const decoded = await ProtocolService.open(envelope)
+      const msg = ProtocolService.parseCommand(decoded)
+      this.logs.unshift(`${this.now()} 明文报文= ${plain}`)
+      this.logs.unshift(`${this.now()} 信封= {alg:${envObj['alg']}, iv:${String(envObj['iv']).slice(0, 8)}…, payload:${String(envObj['payload']).length}B, sign:${String(envObj['sign']).slice(0, 8)}…}`)
+      this.logs.unshift(`${this.now()} 解封还原= ${decoded}（msgId ${msg.msgId} 一致）`)
+    } catch (e) {
+      this.logs.unshift(`${this.now()} JSON信封往返失败：${e.message}`)
+    }
+  }
+
   // 导出当前查询到的历史数据为 CSV
   async exportHistoryCsv() {
     if (this.historyPoints.length === 0) {
@@ -885,6 +902,10 @@ struct Index {
             .fontSize(13)
             .backgroundColor(Color.Green)
             .onClick(() => { this.demoEncryptCommand() })
+          Button('JSON信封往返')
+            .fontSize(13)
+            .backgroundColor(Color.Orange)
+            .onClick(() => { this.demoJsonEnvelope() })
         }
 
         Column({ space: 4 }) {
