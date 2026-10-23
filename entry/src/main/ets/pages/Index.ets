@@ -6,6 +6,7 @@ import { HistoryPoint } from '../model/HistoryPoint'
 import { HistoryStore } from '../service/HistoryStore'
 import { CryptoService } from '../service/CryptoService'
 import { CryptoCheckResult } from '../service/CryptoService'
+import { LineState, ProcessStep, LineIndicator } from '../model/LineState'
 
 // 报警数据
 interface AlarmItem {
@@ -39,6 +40,9 @@ struct Index {
   @State sensor: boolean = true
   @State tempHistory: number[] = []
   @State humiHistory: number[] = []
+  // 模块一：核心工序进度与物理指示灯状态
+  @State processes: ProcessStep[] = []
+  @State indicators: LineIndicator[] = []
 
   // 报警
   @State alarms: AlarmItem[] = [
@@ -136,6 +140,12 @@ struct Index {
     // 控制指令下发后，服务器回推产线状态（Mock 直接回调）
     this.dataService.onCommand((cmd: string, status: string) => {
       this.lineStatus = status
+    })
+
+    // 工序进度 + 物理指示灯状态（真实环境由服务器推送，Mock 本地模拟）
+    this.dataService.onLineState((s: LineState) => {
+      this.processes = s.processes
+      this.indicators = s.indicators
     })
 
     this.dataService.start()
@@ -697,6 +707,22 @@ struct Index {
     })
   }
 
+  // 工序状态配色
+  private stepColor(status: string): Color {
+    if (status === '已完成') return Color.Green
+    if (status === '执行中') return Color.Orange
+    return Color.Gray
+  }
+
+  // 指示灯配色：熄灭为灰，点亮按灯色（运行绿 / 故障红 / 复位橙 / 停止红）
+  private indicatorColor(item: LineIndicator): Color {
+    if (!item.on) return Color.Gray
+    if (item.name.includes('运行')) return Color.Green
+    if (item.name.includes('故障')) return Color.Red
+    if (item.name.includes('复位')) return Color.Orange
+    return Color.Red
+  }
+
   build() {
     //可以滚动
     Scroll() {
@@ -730,6 +756,58 @@ struct Index {
             .fontSize(14)
             .onClick(() => this.confirmAndDo('复位', '复位中'))
         }
+
+        // 模块一：核心工序（上料/装配/检测/打包/入库）执行进度
+        Text('核心工序进度')
+          .fontSize(16)
+          .fontWeight(FontWeight.Bold)
+        Column({ space: 6 }) {
+          ForEach(this.processes, (p: ProcessStep) => {
+            Row({ space: 8 }) {
+              Text(p.name)
+                .fontSize(14)
+                .width(48)
+              Progress({ value: p.progress, total: 100, type: ProgressType.Linear })
+                .width('58%')
+                .height(12)
+                .color(this.stepColor(p.status))
+              Text(`${p.progress}%`)
+                .fontSize(12)
+                .width(40)
+              Text(p.status)
+                .fontSize(12)
+                .fontColor(this.stepColor(p.status))
+            }
+            .width('100%')
+          }, (p: ProcessStep) => p.name)
+        }
+        .width('100%')
+        .padding(8)
+        .border({ width: 1, color: Color.Gray })
+
+        // 模块一：与物理产线指示灯同步
+        Text('物理产线指示灯')
+          .fontSize(16)
+          .fontWeight(FontWeight.Bold)
+        Row({ space: 14 }) {
+          ForEach(this.indicators, (item: LineIndicator) => {
+            Column({ space: 4 }) {
+              Circle({ width: 22, height: 22 })
+                .fill(this.indicatorColor(item))
+                .stroke(item.on ? Color.Black : Color.Gray)
+                .strokeWidth(1)
+              Text(item.name)
+                .fontSize(12)
+              Text(item.on ? '亮' : '灭')
+                .fontSize(11)
+                .fontColor(item.on ? this.indicatorColor(item) : Color.Gray)
+            }
+          }, (item: LineIndicator) => item.name)
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.Start)
+        .padding(8)
+        .border({ width: 1, color: Color.Gray })
 
         Text('温度仪表盘')
           .fontSize(16)
